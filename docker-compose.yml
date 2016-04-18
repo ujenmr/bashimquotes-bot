@@ -1,0 +1,20 @@
+elastic:
+  image: elasticsearch
+  ports:
+    - 9200:9200
+    - 9300:9300
+
+indexer:
+  build: indexer
+  links:
+    - elastic:elastic
+  environment:
+    ELASTICSEARCH_HOST: elastic
+
+bot:
+  build: bot
+  links:
+    - elastic:elastic
+  environment:
+    ELASTICSEARCH_HOST: elastic
+    BOTAPI_TOKEN: _PUT_YOUR_API_HERE_
