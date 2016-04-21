@@ -39,8 +39,28 @@ func fromCP1251toUTF8(s string) string {
 	return string(bUTF)
 }
 
+func elasticIndexing(quoteChan chan Quote) {
+	conn := elastigo.NewConn()
+	if os.Getenv("ELASTICSEARCH_HOST") != "" {
+		conn.Domain = os.Getenv("ELASTICSEARCH_HOST")
+	}
+	defer conn.Close()
+
+	for {
+		quote := <-quoteChan
+		quoteJSON, err := json.Marshal(quote)
+		checkErr(err)
+		log.Println("Encoded to json #" + strconv.Itoa(quote.ID))
+
+		_, err = conn.Index(elasticIndice, "quote", strconv.Itoa(quote.ID), nil, string(quoteJSON))
+		checkErr(err)
+
+		log.Println("Added to elastic #" + strconv.Itoa(quote.ID))
+	}
+}
+
 func main() {
-	getQuote := func(id int) Quote {
+	getQuote := func(id int, quoteChan chan Quote) {
 		url := "http://bash.im/quote/" + strconv.Itoa(id)
 		response, err := http.Get(url)
 		checkErr(err)
@@ -56,25 +76,13 @@ func main() {
 
 		text := reg.FindStringSubmatch(string(bytes))[2]
 		log.Println("Parsed message #" + strconv.Itoa(id))
-		return Quote{ID: id, Body: fromCP1251toUTF8(text), URL: url}
+		quoteChan <- Quote{ID: id, Body: fromCP1251toUTF8(text), URL: url}
 	}
 
-	elasticIndexing := func(quote Quote) {
-		conn := elastigo.NewConn()
-		conn.Domain = os.Getenv("ELASTICSEARCH_HOST")
-		defer conn.Close()
+	var quoteChan chan Quote = make(chan Quote)
+	go elasticIndexing(quoteChan)
 
-		quoteJSON, err := json.Marshal(quote)
-		checkErr(err)
-		log.Println("Encoded to json #" + strconv.Itoa(quote.ID))
-
-		_, err = conn.Index(elasticIndice, "quote", strconv.Itoa(quote.ID), nil, string(quoteJSON))
-		checkErr(err)
-
-		log.Println("Added to elastic #" + strconv.Itoa(quote.ID))
-	}
 	for i := 1; i <= 438894; i++ {
-		go elasticIndexing(getQuote(i))
-		// time.Sleep(30 * time.Millisecond)
+		getQuote(i, quoteChan)
 	}
 }
